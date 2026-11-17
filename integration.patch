@@ -1,0 +1,433 @@
+diff --git a/link.sh b/link.sh
+index c0501eb..d37d93d 100755
+--- a/link.sh
++++ b/link.sh
+@@ -22,7 +22,7 @@ LDOPT="${LDOPT} -mmacosx-version-min=$MINOS"
+ WHICH="${1:-both}"
+ case "$WHICH" in both|orig|hd) ;; *) echo "usage: ./link.sh [orig|hd]"; exit 1 ;; esac
+ 
+-CSRC="mem dispatch genexec heap watchdog win32 win32_ext com debug features res fileio overrides d3dx_hle vsemu enhance perflog autotest lifecycle widescreen framerate dinput_pad dikeys keyboard dinput_kbd career intro oracle drifttest discord roam roam_core roam_bsd roam_game mprace mpcredit horn hornmenu optslider tonemenu radio powerunits drift carsfx racehorn racenet racecars winsock online netrace net_vlan module modheap headlights language sms sponsors lobbyclick olfilter tunegraph dyno menusize regional garage sndlead carshadow carpaint hiddenraces visualrep hqvinyls whine carspot walls travel movie photo look savegame uniques catchup showoff quickrace cameras vinylcat vinylpacks modpacks specialties lightkey plates plate_image trafficcars shownames hudbank engage gpsdistance stance"
++CSRC="mem dispatch genexec heap watchdog win32 win32_ext com debug features res fileio overrides d3dx_hle vsemu enhance perflog autotest lifecycle widescreen framerate dinput_pad dikeys keyboard dinput_kbd career intro oracle drifttest discord roam roam_core roam_bsd roam_game mprace mpcredit horn hornmenu optslider tonemenu radio powerunits drift carsfx racehorn racenet racecars winsock online netrace net_vlan module modheap headlights language sms sponsors lobbyclick olfilter tunegraph dyno menusize regional garage sndlead carshadow carpaint hiddenraces visualrep hqvinyls whine carspot walls travel movie pausemenu photo look savegame uniques catchup showoff quickrace cameras vinylcat vinylpacks modpacks specialties lightkey plates plate_image trafficcars shownames hudbank engage gpsdistance stance"
+ CSRC="$CSRC splitscreen coop damage_none"   # damage_none: the crash damage is the browser build's (damage.c)
+ MSRC="metal audio bundle gamepad keyboard_mac fpscounter texrep"
+ # Unicorn 2.1.4 (native arm64, x86 target only) for the two test builds,
+diff --git a/runtime/coop.c b/runtime/coop.c
+index 927c4e1..723d544 100644
+--- a/runtime/coop.c
++++ b/runtime/coop.c
+@@ -570,7 +570,7 @@ int coop_cmd(CPU *c, const char *args, long *wait_start){
+ }
+ 
+ /* ---- the pause menu's Add Player 2 / Remove Player 2 --------------------------------------------------------------
+- * An item of Replay's kind (photo.c adds it after Replay and Photo Mode, free roam only), its action photo.c's patch
++ * An item of Replay's kind (pausemenu.c adds it after Replay and Photo Mode, free roam only), its action pausemenu.c's patch
+  * of Replay's (items get every message their menu gets).  Add Player 2 asks with the world's generic dialog
+  * (0x558750, IG_GenericDialog_MED.fng; its answers come back to the menu, so to this item): player 2 presses START on
+  * a controller (a local seat's START, input_web.c's join stamp), or picks Keyboard (the keyboard's WASD half); Cancel
+@@ -670,7 +670,7 @@ static int coop_close_steps;        /* after a START: Back to the dialog, then t
+ static int coop_close_dev;          /* that START's seat */
+ uint32_t gamepad_local_join_stamp(unsigned seat);
+ 
+-/* photo.c: the pause menu is being made: our item goes in (free roam's career only) */
++/* pausemenu.c: the pause menu is being made: our item goes in (free roam's career only) */
+ void coop_item(CPU *c, uint32_t menu){
+     if (MR32(G_GAMEMODE) != 1u || MR32(G_RACEPARAMS + 0x10u) != 0u) return;
+     /* NFSU2_COOP (settings.ini coop): off on phones and tablets (the page's device defaults: one touch screen) */
+@@ -685,7 +685,7 @@ void coop_item(CPU *c, uint32_t menu){
+     fprintf(stderr, "[coop] f=%ld the pause menu's %s\n", autotest_frame(), coop_want ? "Remove Player 2" : "Add Player 2");
+ }
+ static void coop_resume(CPU *c){ sub_004c2510(c); }
+-/* photo.c's patch of Replay's action: 0 not ours, 1 ours (photo.c returns from the call), 2 ours and returned (the
++/* pausemenu.c's patch of Replay's action: 0 not ours, 1 ours (pausemenu.c returns from the call), 2 ours and returned (the
+  * menu's Resume returns from it) */
+ int coop_act(CPU *c){
+     uint32_t it = c->ecx, pkg = MR32(c->esp + 4u), msg = MR32(c->esp + 8u);
+diff --git a/runtime/dyno.c b/runtime/dyno.c
+index 9e0f838..12799b1 100644
+--- a/runtime/dyno.c
++++ b/runtime/dyno.c
+@@ -64,7 +64,7 @@ void sub_005647e0(CPU *c);
+ #define MSG_QUIT_YES    0x30ed2368u   /* "Quit to Garage?" Yes */
+ #define MSG_SAVE_YES    0x51123592u   /* Save Profile's "Are you sure ...?" Yes */
+ 
+-static void dyno_msg(CPU *c){
++void dyno_dispatch(CPU *c){
+     uint32_t m = MR32(c->esp + 4u), rec = guest_rd32(DYNO + D_RECORD), kind = guest_rd32(DYNO + D_KIND);
+     if ((m == MSG_SAVE_YES || (m == MSG_QUIT_YES && !MR8(G_SAVE_OPTION))) && rec && guest_ok(rec + REC_SETUPS, 5u * SETUP_SZ)
+         && guest_rd32(DYNO + D_TUNED) && kind < 5u && (gcall(c, FN_CHANGED, DYNO, 0, 0) & 0xffu)){
+@@ -76,4 +76,10 @@ static void dyno_msg(CPU *c){
+     sub_005647e0(c);
+ }
+ 
+-void dyno_install(void){ dispatch_patch(FN_DYNO_MSG, dyno_msg); }
++/* D4Tune owns this dispatch address in the browser and forwards ordinary
++ * visits here.  The native build keeps this feature's original ownership. */
++void dyno_install(void){
++#ifndef __wasm__
++    dispatch_patch(FN_DYNO_MSG, dyno_dispatch);
++#endif
++}
+diff --git a/runtime/featurelist.h b/runtime/featurelist.h
+index e0c7c98..65c1c10 100644
+--- a/runtime/featurelist.h
++++ b/runtime/featurelist.h
+@@ -23,6 +23,8 @@ void menusize_install(void);
+ void olfilter_install(void);
+ void tunegraph_install(void);
+ void dyno_install(void);
++void pausemenu_install(void);
++void d4tune_install(void) __attribute__((weak));
+ void regional_install(void);
+ void garage_install(void);
+ void vinylpacks_install(void);
+@@ -82,6 +84,7 @@ void showoff_frame(CPU *c);
+ void plates_frame(CPU *c);
+ void lightkey_frame(CPU *c);
+ void photo_frame(CPU *c);
++void d4tune_frame(CPU *c) __attribute__((weak));
+ void savegame_frame(void);
+ void coop_frame(CPU *c);
+ void engage_frame(CPU *c);
+diff --git a/runtime/features.c b/runtime/features.c
+index 83a3588..2cd89d4 100644
+--- a/runtime/features.c
++++ b/runtime/features.c
+@@ -31,6 +31,8 @@ static const struct { const char *name; void (*install)(void); unsigned builds;
+     { "olfilter",    olfilter_install,    FT_ALL },   /* the Online lobby's Filter, once set, narrows its list */
+     { "tunegraph",   tunegraph_install,   FT_WEB },   /* the tuning graphs' dots follow a press and a drag (touch) */
+     { "dyno",        dyno_install,        FT_ALL },   /* the dyno's Save Profile and Quit Tuning keep its setups in the car */
++    { "pausemenu",   pausemenu_install,   FT_ALL },   /* one owner for extensions to the in-world pause menus */
++    { "d4tune",      d4tune_install,       FT_WEB },   /* the stock tuning screens over the loaded world */
+     { "regional",    regional_install,    FT_ALL },   /* the European game's Corsa and 106 for sale, and AI racers' cars */
+     { "garage",      garage_install,      FT_ALL },   /* the career garage's slots 6-10 and Trade Car */
+     { "vinylpacks",  vinylpacks_install,  FT_ALL },   /* the Japanese release's Art Factory 28-34 (VINYLPACKS) */
+@@ -77,6 +79,7 @@ static void f_whine(CPU *c){ (void)c; whine_frame(); }
+ static void f_carspot(CPU *c){ (void)c; carspot_frame(); }
+ static void f_walls(CPU *c){ (void)c; walls_frame(); }
+ static void f_savegame(CPU *c){ (void)c; savegame_frame(); }
++static void f_d4tune(CPU *c){ if (d4tune_frame) d4tune_frame(c); }
+ /* the multiplayer feature: roam_game.c's, or in out/nfsu2_asipeer the Windows plugin under Unicorn (roam_asipeer.c) */
+ static void f_roam_game(CPU *c){ if (!roam_asipeer_frame(c)) roam_game_frame(c); }
+ 
+@@ -105,6 +108,7 @@ static const struct { const char *name; void (*frame)(CPU *c); } k_frames[] = {
+     { "plates",      plates_frame },           /* license plates with the players' own text */
+     { "lightkey",    lightkey_frame },         /* the headlights on G (off, high beam), friends' too */
+     { "photo",       photo_frame },            /* photo mode (F12, the pause menu's Photo Mode) */
++    { "d4tune",      f_d4tune },                /* performance tuning over the loaded world (F5, pause menu) */
+     { "savegame",    f_savegame },             /* the pause menu's Save, once its save is over */
+     { "coop",        coop_frame },             /* co-op free roam */
+     { "engage",      engage_frame },           /* Engage at a marker mended when the game would refuse it for good */
+diff --git a/runtime/pausemenu.c b/runtime/pausemenu.c
+new file mode 100644
+index 0000000..3fa6fb2
+--- /dev/null
++++ b/runtime/pausemenu.c
+@@ -0,0 +1,82 @@
++/* pausemenu.c -- shared extensions to the in-world pause menu.
++ *
++ * The pause menus add every option through 0x50DAB0, and Replay-kind items
++ * send their actions through 0x4C26B0.  These addresses can each have only
++ * one dispatch owner, so this file owns them and gives Save, Photo Mode,
++ * local co-op and D4Tune their ordered callbacks.
++ *
++ * Photo Mode and local co-op are anchored after the stock Replay item.  Save
++ * and D4Tune choose their own anchors while AddOption walks the menu. */
++#include "cpu.h"
++#include "guest.h"
++#include <stdint.h>
++
++void dispatch_patch(uint32_t a, void (*f)(CPU *));
++
++#define FN_REPLAY_ACT 0x004c26b0u
++#define FN_ADD_ITEM   0x0050dab0u
++
++int photo_pause_replay(CPU *c, uint32_t item);
++uint32_t photo_pause_item(CPU *c);
++int photo_pause_accept(CPU *c);
++void savegame_item(CPU *c, uint32_t menu, uint32_t item);
++int savegame_accept(CPU *c);
++void coop_item(CPU *c, uint32_t menu);
++int coop_act(CPU *c);
++
++__attribute__((weak)) int d4tune_before_add(CPU *c, uint32_t menu, uint32_t item);
++__attribute__((weak)) void d4tune_after_add(CPU *c, uint32_t menu, uint32_t item);
++__attribute__((weak)) int d4tune_pause_accept(CPU *c);
++
++static uint32_t photo_after;
++static uint32_t coop_after;
++
++/* The stock Replay item has just been constructed.  Photo Mode goes after it
++ * when available; local co-op follows Photo Mode, or Replay without it. */
++void sub_004c2640_orig(CPU *c);
++void sub_004c2640(CPU *c){
++    uint32_t item = c->ecx;
++    sub_004c2640_orig(c);
++    if (photo_pause_replay(c, item)){
++        photo_after = item;
++        coop_after = 0;
++    } else {
++        photo_after = 0;
++        coop_after = item;
++    }
++}
++
++void sub_0050dab0(CPU *c);
++static void add_item(CPU *c){
++    uint32_t menu = c->ecx, item = MR32(c->esp + 4u);
++    if (d4tune_before_add && d4tune_before_add(c, menu, item)) return;
++    sub_0050dab0(c);
++    savegame_item(c, menu, item);
++    if (d4tune_after_add) d4tune_after_add(c, menu, item);
++    if (item && item == coop_after){
++        coop_after = 0;
++        coop_item(c, menu);
++    }
++    if (!item || item != photo_after) return;
++    photo_after = 0;
++    uint32_t photo = photo_pause_item(c);
++    if (!photo) return;
++    coop_after = photo;
++    gcall_main(c, FN_ADD_ITEM, menu, 1, &photo);
++}
++
++void sub_004c26b0(CPU *c);
++static void act(CPU *c){
++    if (d4tune_pause_accept && d4tune_pause_accept(c)) return;
++    if (savegame_accept(c)) return;
++    int co = coop_act(c);
++    if (co == 1){ POP32(c->eip); c->esp += 0x14u; return; }
++    if (co == 2) return;
++    if (photo_pause_accept(c)) return;
++    sub_004c26b0(c);
++}
++
++void pausemenu_install(void){
++    dispatch_patch(FN_REPLAY_ACT, act);
++    dispatch_patch(FN_ADD_ITEM, add_item);
++}
+diff --git a/runtime/photo.c b/runtime/photo.c
+index 6287ef4..24814c4 100644
+--- a/runtime/photo.c
++++ b/runtime/photo.c
+@@ -82,7 +82,8 @@
+  *    Mode's Accept asks for photo mode, then does what the menu's Resume
+  *    does (free roam 0x4C2510, a race 0x4C24C0).  Photo mode opens once the
+  *    game runs again.  savegame.c's Save goes in through the same two
+- *    patches (after Return to Explore Mode; its Accept before ours).
++ *    shared pausemenu.c patches (after Return to Explore Mode; its Accept
++ *    before ours).
+  *
+  * The page (status_web.c) reads:
+  *   photo       bits: 1 photo mode can open now, 2 it is on, 4 the free camera,
+@@ -106,7 +107,6 @@
+ #include <strings.h>
+ #include <time.h>
+ 
+-void dispatch_patch(uint32_t a, void (*f)(CPU *));
+ long autotest_frame(void);
+ const char *language_name(void);
+ int roam_game_names_here(void);                          /* roam_game.c: the names over friends' cars */
+@@ -136,8 +136,6 @@ __attribute__((weak)) void gw_size(unsigned *w, unsigned *h){ *w = 0; *h = 0; }
+ #define G_NUDGE        0x008286b0u
+ #define FN_SET_MOVER   0x005f1fd0u
+ #define FN_OWN_CAMERA  0x005fa820u
+-#define FN_REPLAY_ACT  0x004c26b0u
+-#define FN_ADD_ITEM    0x0050dab0u   /* thiscall (item; ret 4): a menu's AddOption, its vtable's +0x18 */
+ #define VT_REPLAY      0x007954f0u   /* the Replay item's vtable */
+ #define ITEM_BYTES     0x48u
+ #define ICON_PHOTO     0x69cd72d1u   /* INGAME_ICON_VOIP_ON, unused: texrep_web.c draws a still camera there */
+@@ -280,13 +278,12 @@ void photo_input(int cmd, int a, int b){
+ 
+ #define NSLOTS 7
+ static struct {
+-    int on, free, names, drawn, patched, slots, slot[NSLOTS];
++    int on, free, names, drawn, slots, slot[NSLOTS];
+     int drive_on;                                /* time runs on while photo mode is on (the page's Freeze time off) */
+     int game_lod;                                /* tests (photo fulldetail 0): the cars' models as the game picks them */
+     long n, pause_at;
+     double t, val[NSLOTS];
+-    uint32_t freeze_was, label, quiet, after;    /* after: the Replay item Photo Mode goes in behind */
+-    uint32_t coop_after;                         /* the item coop.c's Add Player 2 goes in behind */
++    uint32_t freeze_was, label, quiet;
+     uint32_t least[2];                           /* the Car detail option's least models, while photo mode has 0 there */
+     uint32_t mb_was, hl_was;                     /* the Motion Blur and Headlights options, while photo mode changes them */
+     int speed_blur;                              /* tests (photo speedblur 1): the game's motion blur stays on */
+@@ -1108,15 +1105,12 @@ static void publish(int can){
+     host_status_set_n(P.slot, v, NSLOTS);
+ }
+ 
+-static void act(CPU *c);
+-static void add_item(CPU *c);
+ void photo_frame(CPU *c){
+     cars_drawn1 = cars_drawn; cars_full1 = cars_full; cars_drawn = cars_full = 0;
+     double t = now_s();
+     float dt = P.t > 0 ? (float)(t - P.t) : 0.f;
+     P.t = t;
+     if (dt < 0.f) dt = 0.f; else if (dt > 0.1f) dt = 0.1f;
+-    if (!P.patched){ P.patched = 1; dispatch_patch(FN_REPLAY_ACT, act); dispatch_patch(FN_ADD_ITEM, add_item); }
+     hud_frame();
+     if (!P.shown_set){ P.shown_set = 1; P.show = SHOW_ALL; P.lights = 1; P.horns = 1; P.weather = -1; }
+     label();
+@@ -1273,58 +1267,39 @@ void sub_005378c0(CPU *c){
+     for (int i = 0; i < nhid; i++) MR32(hid[i] + OB_FLAGS) = (MR32(hid[i] + OB_FLAGS) & ~1u) | 0x400000u;
+ }
+ 
+-/* The pause menu's Replay (thiscall: icon, label, 0; ret 0xC), as the game makes it; Photo Mode goes in after it
+- * where photo mode can open after the pause. */
+-void sub_004c2640_orig(CPU *c);
+-void sub_004c2640(CPU *c){
+-    uint32_t it = c->ecx, pl = player();
+-    sub_004c2640_orig(c);
++/* pausemenu.c: the stock Replay item has just been made; 1 when Photo Mode
++ * should go after it. */
++int photo_pause_replay(CPU *c, uint32_t it){
++    (void)c;
++    uint32_t pl = player();
+     const char *no = !atomic_load(&I.page) ? "no page for it" : !P.label || !guest_ok(it, IT_LABEL + 4u) ? "no label" :
+                      network_race() ? "a race over the network" : !car_of(pl) ? "no car" :
+                      mover_type(pl) != MOVER_DRIVE ? "not the drive camera" : 0;
+     fprintf(stderr, "[photo] f=%ld the pause menu's Replay%s, Photo Mode %s%s (camera %u)\n", autotest_frame(),
+             guest_ok(it, IT_GREY) && MR8(it + IT_GREY) ? " (greyed out)" : "", no ? "not: " : "after it", no ? no : "", mover_type(pl));
+-    P.after = no ? 0u : it;
+-    P.coop_after = no ? it : 0u;        /* coop.c's Add Player 2 after Photo Mode, or after Replay without it */
++    return no == 0;
+ }
+-/* A menu's AddOption (thiscall: item; ret 4): after that Replay, Photo Mode, an item of Replay's kind with its own
+- * icon and label (and savegame.c's Save after Return to Explore Mode). */
+-void sub_0050dab0(CPU *c);
+-void savegame_item(CPU *c, uint32_t menu, uint32_t it);
+-int savegame_accept(CPU *c);
+-void coop_item(CPU *c, uint32_t menu);
+-int coop_act(CPU *c);
+-static void add_item(CPU *c){
+-    uint32_t menu = c->ecx, it = MR32(c->esp + 4u);
+-    sub_0050dab0(c);
+-    savegame_item(c, menu, it);
+-    if (it && it == P.coop_after){ P.coop_after = 0; coop_item(c, menu); }
+-    if (!it || it != P.after) return;
+-    P.after = 0;
++/* pausemenu.c: make the Photo Mode item.  It sets the local co-op anchor
++ * before adding this through the shared AddOption patch. */
++uint32_t photo_pause_item(CPU *c){
+     uint32_t n = ITEM_BYTES, ph = gcall_main(c, FN_NEW, 0, 1, &n);
+-    if (!guest_ok(ph, ITEM_BYTES)) return;
++    if (!guest_ok(ph, ITEM_BYTES)) return 0;
+     uint32_t arg[3] = { ICON_PHOTO, P.label, 0 };
+     gcall_main(c, FN_ITEM, ph, 3, arg);
+     MR32(ph) = VT_REPLAY;
+-    P.coop_after = ph;
+-    gcall_main(c, FN_ADD_ITEM, menu, 1, &ph);
++    return ph;
+ }
+-/* Their action (thiscall: package, message, ...; ret 0x14): Photo Mode's Accept asks for photo mode, then resumes
+- * the game as the menu's Resume does; Save's is savegame.c's; Replay's as the game has it. */
+-void sub_004c26b0(CPU *c);
++/* pausemenu.c: Photo Mode's Accept asks for photo mode, then resumes the game
++ * as the menu's Resume does.  Return 1 when the item was ours. */
+ void sub_004c2510(CPU *c);
+ void sub_004c24c0(CPU *c);
+-static void act(CPU *c){
+-    if (savegame_accept(c)) return;
+-    /* coop.c's item: 1 handled (thiscall, 5 arguments), 2 handled and returned (the menu's Resume) */
+-    int co = coop_act(c);
+-    if (co == 1){ POP32(c->eip); c->esp += 0x14u; return; }
+-    if (co == 2) return;
++int photo_pause_accept(CPU *c){
+     uint32_t it = c->ecx, msg = MR32(c->esp + 8u);
+-    if (msg != MSG_ACCEPT || !guest_ok(it, IT_LABEL + 4u) || MR32(it + IT_LABEL) != P.label || MR8(it + IT_GREY)){ sub_004c26b0(c); return; }
++    if (msg != MSG_ACCEPT || !guest_ok(it, IT_LABEL + 4u) || MR32(it + IT_LABEL) != P.label || MR8(it + IT_GREY)) return 0;
+     P.pause_at = autotest_frame();
+     fprintf(stderr, "[photo] f=%ld the pause menu's Photo Mode\n", autotest_frame());
+     if (MR32(G_RACETYPE) == 0u) sub_004c2510(c); else sub_004c24c0(c);
++    return 1;
+ }
+ 
+ /* ---- the cars in the picture ---------------------------------------------------------------------------------
+diff --git a/runtime/savegame.c b/runtime/savegame.c
+index f33c288..a4a8ab7 100644
+--- a/runtime/savegame.c
++++ b/runtime/savegame.c
+@@ -21,7 +21,7 @@
+  * The game (SPEED2.EXE v1.2 NA):
+  *  - Career free roam's pause menu (0x4C2900) starts with Return to Explore
+  *    Mode (MU_PAUSE_EXPLORE 0xC3E5BCDC, class vtable 0x7954D8), added through
+- *    the menu's AddOption (0x50DAB0, patched by photo.c, which calls
++ *    the menu's AddOption (0x50DAB0, patched by pausemenu.c, which calls
+  *    savegame_item after each add).  Save goes in after it: an item of
+  *    Replay's kind (0x51F670, vtable 0x7954F0, +0x20 greyed out) with the
+  *    game's own label MU_PAUSE_SAVE_GAME (0x37D13AE5, "Save" in every
+@@ -30,7 +30,7 @@
+  *    so texrep_web.c copies it into INGAME_ICON_VOIP_MUTE (0x12F47B2F), which
+  *    nothing in the PC game draws, and the item names that.  Its action is Replay's
+  *    (0x4C26B0, thiscall: package, message, 3 more; ret 0x14), whose patch in
+- *    photo.c asks savegame_accept first.
++ *    pausemenu.c asks savegame_accept first.
+  *  - The career keeps the car's place for the world's next load at Career
+  *    (0x85AD40) +0x8750 (float[3]) and +0x8760 (u16, the heading), +0x8744 1
+  *    to put it there, as 0x513B30 takes them from the car (+0x60, +0x40C)
+@@ -132,7 +132,7 @@ static const char *not_now(void){
+     return 0;
+ }
+ 
+-/* photo.c's AddOption patch, after the game's add: after Return to Explore Mode, Save */
++/* pausemenu.c's AddOption patch, after the game's add: after Return to Explore Mode, Save */
+ void savegame_item(CPU *c, uint32_t menu, uint32_t it){
+     if (!guest_ok(it, IT_LABEL + 4u) || MR32(it) != VT_EXPLORE || MR32(it + IT_LABEL) != LBL_EXPLORE) return;
+     if (MR32(G_GAMEMODE) != 1u || MR32(G_RACETYPE) != 0u) return;
+@@ -147,7 +147,7 @@ void savegame_item(CPU *c, uint32_t menu, uint32_t it){
+     fprintf(stderr, "[save] f=%ld the pause menu's Save%s%s%s\n", autotest_frame(), why ? " (greyed out: " : "", why ? why : "", why ? ")" : "");
+ }
+ 
+-/* photo.c's patch of Replay's action, first: Save's Accept saves; 1 when it was Save's (the call returned) */
++/* pausemenu.c's patch of Replay's action: Save's Accept saves; 1 when it was Save's (the call returned) */
+ int savegame_accept(CPU *c){
+     uint32_t it = c->ecx, pkg = MR32(c->esp + 4u), msg = MR32(c->esp + 8u);
+     if (!guest_ok(it, IT_LABEL + 4u) || MR32(it + IT_LABEL) != LBL_SAVE || MR32(it) != VT_REPLAY) return 0;
+diff --git a/web/build.sh b/web/build.sh
+index 3801df9..c8283ca 100755
+--- a/web/build.sh
++++ b/web/build.sh
+@@ -93,11 +93,17 @@ HDRSUM="$( (cat runtime/cpu.h runtime/splitscreen_mem.h runtime/web/compat/wasm_
+ # browser's virtual-LAN backend (runtime/web/net_lan.c); module.c + modheap.c
+ # load the lifted server.dll; enhance.c holds the graphics options (all off by
+ # default, as on the Mac).
+-RT="mem dispatch genexec heap watchdog win32 win32_ext com debug features res fileio overrides d3dx_hle vsemu oracle autotest lifecycle widescreen framerate dinput_pad dikeys keyboard dinput_kbd career intro drifttest roam roam_core roam_game mprace mpcredit horn hornmenu optslider tonemenu powerunits radio drift carsfx racehorn racenet racecars winsock online netrace module modheap enhance headlights language sms sponsors lobbyclick olfilter tunegraph dyno menusize regional garage sndlead carshadow carpaint hiddenraces visualrep hqvinyls whine carspot walls travel movie photo look savegame uniques catchup showoff quickrace cameras vinylcat vinylpacks modpacks specialties lightkey plates plate_image trafficcars shownames hudbank engage gpsdistance stance"
++RT="mem dispatch genexec heap watchdog win32 win32_ext com debug features res fileio overrides d3dx_hle vsemu oracle autotest lifecycle widescreen framerate dinput_pad dikeys keyboard dinput_kbd career intro drifttest roam roam_core roam_game mprace mpcredit horn hornmenu optslider tonemenu powerunits radio drift carsfx racehorn racenet racecars winsock online netrace module modheap enhance headlights language sms sponsors lobbyclick olfilter tunegraph dyno d4tune menusize regional garage sndlead carshadow carpaint hiddenraces visualrep hqvinyls whine carspot walls travel movie pausemenu photo look savegame uniques catchup showoff quickrace cameras vinylcat vinylpacks modpacks specialties lightkey plates plate_image trafficcars shownames hudbank engage gpsdistance stance"
+ RT="$RT splitscreen coop damage"
+ WEB="$(cd runtime/web && ls *.c | sed 's/\.c$//')"
+ pids=""
+ for f in $RT; do
++  if [ "$f" = d4tune ]; then
++    d4="${D4TUNE_OBJECT:-$ROOT/D4Tune/d4tune.bin}"
++    [ -f "$d4" ] || { echo "D4Tune object not found: $d4 (run D4Tune/build.sh or set D4TUNE_OBJECT)"; exit 1; }
++    cp "$d4" "$OUT/rt/d4tune.o"
++    continue
++  fi
+   src="runtime/$f.c"; [ -f "$src" ] || src="runtime/web/$f.c"
+   [ -f "$src" ] || continue
+   fx=""; case "$f" in roam_core|roam_game) fx="-ffp-contract=off" ;; esac
+diff --git a/web/src/app/settings.ts b/web/src/app/settings.ts
+index 81ec283..3207ca2 100644
+--- a/web/src/app/settings.ts
++++ b/web/src/app/settings.ts
+@@ -190,6 +190,9 @@ export const KEYS: readonly KeyDef[] = [
+   // the career's hidden races on the map like the others (runtime/hiddenraces.c).  Not in bundle.m's table: there a
+   // lower-case key, so it reaches the runtime as NFSU2_SHOW_HIDDEN_RACES all the same
+   { key: 'show_hidden_races', env: 'NFSU2_SHOW_HIDDEN_RACES', kind: 'bool', scope: 'web' },
++  // D4Tune's optional F5 shortcut (runtime/d4tune.c).  Not in bundle.m's table: there a lower-case key, so it reaches
++  // the runtime as NFSU2_D4TUNE_F5 all the same
++  { key: 'd4tune_f5', env: 'NFSU2_D4TUNE_F5', kind: 'bool', scope: 'web' },
+   // the career's visual rating set by the stage, not by the car's parts (runtime/visualrep.c).  Not in bundle.m's
+   // table: there a lower-case key, so it reaches the runtime as NFSU2_VISUAL_REP_REMOVER all the same
+   { key: 'visual_rep_remover', env: 'NFSU2_VISUAL_REP_REMOVER', kind: 'bool', scope: 'web' },
+@@ -355,6 +358,10 @@ export const TEMPLATE = `# NFSU2 settings, read at every launch.
+ # [NFSU2_GPS_DISTANCE]
+ #gps_distance = off
+ 
++# Open Tune Car with F5 while driving.  The career free-roam pause menu has
++# Tune Car either way.  [NFSU2_D4TUNE_F5]
++#d4tune_f5 = off
++
+ # The car's visual rating set by the career's stage, not by its parts, as
+ # thelink2012's Visual Reputation Remover (github.com/thelink2012/novisualrep)
+ # has it: every DVD cover shoot of the stage is offered at the next free-roam
